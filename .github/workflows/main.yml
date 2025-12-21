@@ -141,23 +141,80 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Bring up Tailscale with the provided auth key and set a unique hostname
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          Write-Host "`n🔗 Connecting to Tailscale..." -ForegroundColor Cyan
           
-          # Wait for Tailscale to assign an IP
+          # Check if Tailscale is installed
+          if (-not (Test-Path "$env:ProgramFiles\Tailscale\tailscale.exe")) {
+              Write-Error "❌ Tailscale executable not found. Installation may have failed."
+              exit 1
+          }
+          
+          Write-Host "✅ Tailscale executable found" -ForegroundColor Green
+          
+          # Bring up Tailscale with the provided auth key and set a unique hostname
+          Write-Host "Authenticating with Tailscale..." -ForegroundColor Yellow
+          
+          try {
+              $output = & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID 2>&1
+              Write-Host "Tailscale up command output: $output" -ForegroundColor Gray
+          } catch {
+              Write-Error "❌ Failed to run Tailscale up command: $_"
+              exit 1
+          }
+          
+          # Wait a bit for Tailscale to initialize
+          Write-Host "Waiting for Tailscale to initialize..." -ForegroundColor Yellow
+          Start-Sleep -Seconds 10
+          
+          # Check Tailscale status
+          Write-Host "`nChecking Tailscale status..." -ForegroundColor Yellow
+          $status = & "$env:ProgramFiles\Tailscale\tailscale.exe" status 2>&1
+          Write-Host "Status: $status" -ForegroundColor Gray
+          
+          # Wait for Tailscale to assign an IP (increased retries and wait time)
+          Write-Host "`nWaiting for IP assignment..." -ForegroundColor Yellow
           $tsIP = $null
           $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
+          $maxRetries = 20  # Increased from 10
+          
+          while (-not $tsIP -and $retries -lt $maxRetries) {
               $retries++
+              Write-Host "Attempt $retries/$maxRetries..." -ForegroundColor Gray
+              
+              try {
+                  $tsIP = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>&1) | Out-String
+                  $tsIP = $tsIP.Trim()
+                  
+                  if ($tsIP -and $tsIP -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                      Write-Host "✅ IP detected: $tsIP" -ForegroundColor Green
+                      break
+                  } else {
+                      Write-Host "⏳ No valid IP yet (got: '$tsIP')" -ForegroundColor Yellow
+                      $tsIP = $null
+                  }
+              } catch {
+                  Write-Host "⚠️  Error getting IP: $_" -ForegroundColor Yellow
+              }
+              
+              Start-Sleep -Seconds 10  # Increased from 5
           }
           
           if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
+              Write-Host "`n❌ TROUBLESHOOTING INFO:" -ForegroundColor Red
+              Write-Host "Tailscale Status:" -ForegroundColor Yellow
+              & "$env:ProgramFiles\Tailscale\tailscale.exe" status
+              Write-Host "`nTailscale Version:" -ForegroundColor Yellow
+              & "$env:ProgramFiles\Tailscale\tailscale.exe" version
+              Write-Host "`nNetwork Interfaces:" -ForegroundColor Yellow
+              Get-NetIPAddress | Format-Table -AutoSize
+              
+              Write-Error "❌ Tailscale IP not assigned after $maxRetries attempts. Check your TAILSCALE_AUTH_KEY secret."
               exit 1
           }
+          
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "`n✅ Tailscale connected successfully!" -ForegroundColor Green
+          Write-Host "📍 Tailscale IP: $tsIP" -ForegroundColor Cyan
       
       - name: Verify RDP Accessibility
         run: |
