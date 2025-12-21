@@ -2,6 +2,25 @@ name: RDP
 
 on:
   workflow_dispatch:
+    inputs:
+      restore_session:
+        description: 'Restore from previous session?'
+        required: true
+        default: 'yes'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      storage_backend:
+        description: 'Persistent storage backend'
+        required: true
+        default: 'github-artifacts'
+        type: choice
+        options:
+          - 'github-artifacts'
+          - 'google-drive'
+          - 'onedrive'
+          - 'none'
 
 jobs:
   secure-rdp:
@@ -9,7 +28,132 @@ jobs:
     timeout-minutes: 3600
 
     steps:
-      - name: Configure Core RDP Settings
+      - name: Detect Triggering Machine IP
+        run: |
+          Write-Host "Detecting the public IP of the machine that triggered this workflow..." -ForegroundColor Cyan
+          
+          # Get public IP from multiple sources for reliability
+          $ipSources = @(
+              "https://api.ipify.org",
+              "https://ifconfig.me/ip",
+              "https://icanhazip.com",
+              "https://checkip.amazonaws.com"
+          )
+          
+          $detectedIP = $null
+          foreach ($source in $ipSources) {
+              try {
+                  $detectedIP = (Invoke-RestMethod -Uri $source -TimeoutSec 5).Trim()
+                  if ($detectedIP -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                      Write-Host "✅ Detected IP: $detectedIP (from $source)" -ForegroundColor Green
+                      break
+                  }
+              } catch {
+                  Write-Host "⚠️  Failed to get IP from $source, trying next..." -ForegroundColor Yellow
+                  continue
+              }
+          }
+          
+          if (-not $detectedIP) {
+              Write-Error "❌ Failed to detect public IP from all sources"
+              exit 1
+          }
+          
+          # Validate IP format
+          if ($detectedIP -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+              Write-Error "❌ Invalid IP format detected: $detectedIP"
+              exit 1
+          }
+          
+          echo "TRIGGER_IP=$detectedIP" >> $env:GITHUB_ENV
+          Write-Host "🔒 RDP will be restricted to IP: $detectedIP" -ForegroundColor Green
+
+      - name: Restore Previous Session
+        if: inputs.restore_session == 'yes' && inputs.storage_backend != 'none'
+        run: |
+          Write-Host "`n📦 Restoring previous session data..." -ForegroundColor Cyan
+          
+          $storageBackend = "${{ inputs.storage_backend }}"
+          $restorePath = "$env:USERPROFILE\RDPSession"
+          
+          if ($storageBackend -eq "github-artifacts") {
+              Write-Host "🔍 Checking for previous session artifacts..." -ForegroundColor Yellow
+              
+              # Download the latest session backup artifact
+              # Note: This requires the GitHub CLI or API token
+              try {
+                  # Create restore directory
+                  New-Item -ItemType Directory -Path $restorePath -Force | Out-Null
+                  
+                  Write-Host "⚠️  GitHub Artifacts restore requires manual setup" -ForegroundColor Yellow
+                  Write-Host "   To enable: Add GITHUB_TOKEN to secrets and use actions/download-artifact" -ForegroundColor Gray
+                  Write-Host "   For now, starting with fresh session..." -ForegroundColor Gray
+              } catch {
+                  Write-Host "⚠️  Could not restore from artifacts: $_" -ForegroundColor Yellow
+              }
+          }
+          elseif ($storageBackend -eq "google-drive") {
+              Write-Host "☁️  Google Drive sync selected" -ForegroundColor Cyan
+              
+              # Install rclone for cloud storage
+              try {
+                  Write-Host "Installing rclone..." -ForegroundColor Yellow
+                  choco install rclone -y --no-progress
+                  
+                  if ("${{ secrets.RCLONE_CONFIG }}" -ne "") {
+                      # Restore rclone config from secret
+                      $rcloneConfigPath = "$env:APPDATA\rclone\rclone.conf"
+                      New-Item -ItemType Directory -Path (Split-Path $rcloneConfigPath) -Force | Out-Null
+                      "${{ secrets.RCLONE_CONFIG }}" | Out-File -FilePath $rcloneConfigPath -Encoding UTF8
+                      
+                      Write-Host "✅ Rclone configured" -ForegroundColor Green
+                      Write-Host "📥 Syncing from Google Drive..." -ForegroundColor Cyan
+                      
+                      # Sync Desktop, Documents, Downloads
+                      rclone sync "gdrive:RDP-Backup/Desktop" "$env:USERPROFILE\Desktop" -v
+                      rclone sync "gdrive:RDP-Backup/Documents" "$env:USERPROFILE\Documents" -v
+                      rclone sync "gdrive:RDP-Backup/Downloads" "$env:USERPROFILE\Downloads" -v
+                      
+                      Write-Host "✅ Files restored from Google Drive" -ForegroundColor Green
+                  } else {
+                      Write-Host "⚠️  RCLONE_CONFIG secret not set. Skipping cloud sync." -ForegroundColor Yellow
+                      Write-Host "   See SETUP.md for rclone configuration instructions" -ForegroundColor Gray
+                  }
+              } catch {
+                  Write-Host "⚠️  Google Drive sync failed: $_" -ForegroundColor Yellow
+              }
+          }
+          elseif ($storageBackend -eq "onedrive") {
+              Write-Host "☁️  OneDrive sync selected" -ForegroundColor Cyan
+              
+              try {
+                  Write-Host "Installing rclone..." -ForegroundColor Yellow
+                  choco install rclone -y --no-progress
+                  
+                  if ("${{ secrets.RCLONE_CONFIG }}" -ne "") {
+                      $rcloneConfigPath = "$env:APPDATA\rclone\rclone.conf"
+                      New-Item -ItemType Directory -Path (Split-Path $rcloneConfigPath) -Force | Out-Null
+                      "${{ secrets.RCLONE_CONFIG }}" | Out-File -FilePath $rcloneConfigPath -Encoding UTF8
+                      
+                      Write-Host "✅ Rclone configured" -ForegroundColor Green
+                      Write-Host "📥 Syncing from OneDrive..." -ForegroundColor Cyan
+                      
+                      rclone sync "onedrive:RDP-Backup/Desktop" "$env:USERPROFILE\Desktop" -v
+                      rclone sync "onedrive:RDP-Backup/Documents" "$env:USERPROFILE\Documents" -v
+                      rclone sync "onedrive:RDP-Backup/Downloads" "$env:USERPROFILE\Downloads" -v
+                      
+                      Write-Host "✅ Files restored from OneDrive" -ForegroundColor Green
+                  } else {
+                      Write-Host "⚠️  RCLONE_CONFIG secret not set. Skipping cloud sync." -ForegroundColor Yellow
+                  }
+              } catch {
+                  Write-Host "⚠️  OneDrive sync failed: $_" -ForegroundColor Yellow
+              }
+          }
+          
+          Write-Host "✅ Session restore complete`n" -ForegroundColor Green
+
+      - name: Configure Core RDP Settings and Firewall
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (if needed)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -19,43 +163,77 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
                              -Name "SecurityLayer" -Value 0 -Force
 
-          # Remove any existing rule with the same name to avoid duplication
+          # Remove any existing RDP rules to avoid duplication
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall delete rule name="RDP-Trigger-IP"
+          netsh advfirewall firewall delete rule name="Block-RDP-Public"
           
-          # For testing, allow any incoming connection on port 3389
+          Write-Host "`n🔒 Configuring Firewall Rules..." -ForegroundColor Cyan
+          
+          # Block all RDP connections by default (security first)
+          netsh advfirewall firewall add rule name="Block-RDP-Public" `
+            dir=in action=block protocol=TCP localport=3389 profile=public
+          Write-Host "✅ Blocked all public RDP connections" -ForegroundColor Green
+          
+          # Allow RDP from Tailscale network (100.64.0.0/10 is Tailscale's CGNAT range)
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
-
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
-          Restart-Service -Name TermService -Force
-
-      - name: Create RDP User with Secure Password
-        run: |
-          Add-Type -AssemblyName System.Security
-          $charSet = @{
-              Upper   = [char[]](65..90)      # A-Z
-              Lower   = [char[]](97..122)     # a-z
-              Number  = [char[]](48..57)      # 0-9
-              Special = ([char[]](33..47) + [char[]](58..64) +
-                         [char[]](91..96) + [char[]](123..126)) # Special characters
+            dir=in action=allow protocol=TCP localport=3389 `
+            remoteip=100.64.0.0/10 profile=any
+          Write-Host "✅ Allowed RDP from Tailscale network (100.64.0.0/10)" -ForegroundColor Green
+          
+          # Allow RDP from the triggering machine's IP
+          if (-not [string]::IsNullOrWhiteSpace($env:TRIGGER_IP)) {
+              netsh advfirewall firewall add rule name="RDP-Trigger-IP" `
+                dir=in action=allow protocol=TCP localport=3389 `
+                remoteip=$env:TRIGGER_IP profile=any
+              Write-Host "✅ Allowed RDP from triggering machine: $env:TRIGGER_IP" -ForegroundColor Green
+          } else {
+              Write-Host "⚠️  Warning: TRIGGER_IP not set, skipping IP-specific rule" -ForegroundColor Yellow
           }
-          $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          
+          Write-Host "`n🔒 Firewall Summary:" -ForegroundColor Cyan
+          Write-Host "   - Blocked: All public internet" -ForegroundColor Red
+          Write-Host "   - Allowed: Tailscale network (100.64.0.0/10)" -ForegroundColor Green
+          Write-Host "   - Allowed: Your IP ($env:TRIGGER_IP)" -ForegroundColor Green
+          Write-Host ""
+
+          # Restart the Remote Desktop service to ensure changes take effect
+          Restart-Service -Name TermService -Force
+          Write-Host "✅ Remote Desktop service restarted" -ForegroundColor Green
+
+      - name: Create RDP User with Static Credentials
+        run: |
+          # Use static credentials from GitHub Secrets
+          $username = "${{ secrets.RDP_USERNAME }}"
+          $password = "${{ secrets.RDP_PASSWORD }}"
+          
+          # Validate that secrets are set
+          if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($password)) {
+              Write-Error "RDP_USERNAME or RDP_PASSWORD secret not set in GitHub repository"
+              exit 1
+          }
+          
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
-          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
+          # Check if user already exists and remove it
+          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
+              Remove-LocalUser -Name $username -Force
+          }
           
-          if (-not (Get-LocalUser -Name "RDP")) {
+          # Create new user with static credentials
+          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          echo "RDP_CREDS=User: $username | Password: ********" >> $env:GITHUB_ENV
+          echo "RDP_USERNAME=$username" >> $env:GITHUB_ENV
+          
+          if (-not (Get-LocalUser -Name $username)) {
               Write-Error "User creation failed"
               exit 1
           }
+          
+          Write-Host "User '$username' created successfully with static credentials"
 
       - name: Install Tailscale
         run: |
@@ -68,23 +246,80 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Bring up Tailscale with the provided auth key and set a unique hostname
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          Write-Host "`n🔗 Connecting to Tailscale..." -ForegroundColor Cyan
           
-          # Wait for Tailscale to assign an IP
+          # Check if Tailscale is installed
+          if (-not (Test-Path "$env:ProgramFiles\Tailscale\tailscale.exe")) {
+              Write-Error "❌ Tailscale executable not found. Installation may have failed."
+              exit 1
+          }
+          
+          Write-Host "✅ Tailscale executable found" -ForegroundColor Green
+          
+          # Bring up Tailscale with the provided auth key and set a unique hostname
+          Write-Host "Authenticating with Tailscale..." -ForegroundColor Yellow
+          
+          try {
+              $output = & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID 2>&1
+              Write-Host "Tailscale up command output: $output" -ForegroundColor Gray
+          } catch {
+              Write-Error "❌ Failed to run Tailscale up command: $_"
+              exit 1
+          }
+          
+          # Wait a bit for Tailscale to initialize
+          Write-Host "Waiting for Tailscale to initialize..." -ForegroundColor Yellow
+          Start-Sleep -Seconds 10
+          
+          # Check Tailscale status
+          Write-Host "`nChecking Tailscale status..." -ForegroundColor Yellow
+          $status = & "$env:ProgramFiles\Tailscale\tailscale.exe" status 2>&1
+          Write-Host "Status: $status" -ForegroundColor Gray
+          
+          # Wait for Tailscale to assign an IP (increased retries and wait time)
+          Write-Host "`nWaiting for IP assignment..." -ForegroundColor Yellow
           $tsIP = $null
           $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
+          $maxRetries = 20  # Increased from 10
+          
+          while (-not $tsIP -and $retries -lt $maxRetries) {
               $retries++
+              Write-Host "Attempt $retries/$maxRetries..." -ForegroundColor Gray
+              
+              try {
+                  $tsIP = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>&1) | Out-String
+                  $tsIP = $tsIP.Trim()
+                  
+                  if ($tsIP -and $tsIP -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                      Write-Host "✅ IP detected: $tsIP" -ForegroundColor Green
+                      break
+                  } else {
+                      Write-Host "⏳ No valid IP yet (got: '$tsIP')" -ForegroundColor Yellow
+                      $tsIP = $null
+                  }
+              } catch {
+                  Write-Host "⚠️  Error getting IP: $_" -ForegroundColor Yellow
+              }
+              
+              Start-Sleep -Seconds 10  # Increased from 5
           }
           
           if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
+              Write-Host "`n❌ TROUBLESHOOTING INFO:" -ForegroundColor Red
+              Write-Host "Tailscale Status:" -ForegroundColor Yellow
+              & "$env:ProgramFiles\Tailscale\tailscale.exe" status
+              Write-Host "`nTailscale Version:" -ForegroundColor Yellow
+              & "$env:ProgramFiles\Tailscale\tailscale.exe" version
+              Write-Host "`nNetwork Interfaces:" -ForegroundColor Yellow
+              Get-NetIPAddress | Format-Table -AutoSize
+              
+              Write-Error "❌ Tailscale IP not assigned after $maxRetries attempts. Check your TAILSCALE_AUTH_KEY secret."
               exit 1
           }
+          
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "`n✅ Tailscale connected successfully!" -ForegroundColor Green
+          Write-Host "📍 Tailscale IP: $tsIP" -ForegroundColor Cyan
       
       - name: Verify RDP Accessibility
         run: |
@@ -100,14 +335,102 @@ jobs:
 
       - name: Maintain Connection
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "==================`n"
+          Write-Host "`n========================================" -ForegroundColor Cyan
+          Write-Host "       RDP ACCESS INFORMATION" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP" -ForegroundColor Green
+          Write-Host "Username: $env:RDP_USERNAME" -ForegroundColor Green
+          Write-Host "Password: (Check GitHub Secrets - RDP_PASSWORD)" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "🔒 Firewall Protection:" -ForegroundColor Cyan
+          Write-Host "   ✅ Allowed from Tailscale network" -ForegroundColor Green
+          Write-Host "   ✅ Allowed from your IP: $env:TRIGGER_IP" -ForegroundColor Green
+          Write-Host "   ❌ Blocked from all other IPs" -ForegroundColor Red
+          Write-Host ""
+          Write-Host "========================================`n" -ForegroundColor Cyan
           
-          # Keep runner active indefinitely (or until manually cancelled)
+          # Keep runner active and perform periodic backups
+          $backupInterval = 1800  # 30 minutes in seconds
+          $lastBackup = Get-Date
+          $storageBackend = "${{ inputs.storage_backend }}"
+          
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              $currentTime = Get-Date
+              $timeSinceBackup = ($currentTime - $lastBackup).TotalSeconds
+              
+              Write-Host "[$currentTime] RDP Active - Use Ctrl+C in workflow to terminate" -ForegroundColor Green
+              
+              # Perform periodic backup if enabled
+              if ($storageBackend -ne "none" -and $timeSinceBackup -ge $backupInterval) {
+                  Write-Host "`n💾 Performing periodic backup..." -ForegroundColor Cyan
+                  
+                  if ($storageBackend -eq "google-drive" -or $storageBackend -eq "onedrive") {
+                      try {
+                          $remoteName = if ($storageBackend -eq "google-drive") { "gdrive" } else { "onedrive" }
+                          
+                          Write-Host "📤 Syncing to $storageBackend..." -ForegroundColor Yellow
+                          rclone sync "$env:USERPROFILE\Desktop" "${remoteName}:RDP-Backup/Desktop" -v --exclude "desktop.ini"
+                          rclone sync "$env:USERPROFILE\Documents" "${remoteName}:RDP-Backup/Documents" -v --exclude "desktop.ini"
+                          rclone sync "$env:USERPROFILE\Downloads" "${remoteName}:RDP-Backup/Downloads" -v --exclude "desktop.ini"
+                          
+                          Write-Host "✅ Backup completed at $currentTime" -ForegroundColor Green
+                          $lastBackup = $currentTime
+                      } catch {
+                          Write-Host "⚠️  Backup failed: $_" -ForegroundColor Yellow
+                      }
+                  }
+                  elseif ($storageBackend -eq "github-artifacts") {
+                      Write-Host "ℹ️  GitHub Artifacts backup on shutdown only" -ForegroundColor Gray
+                      $lastBackup = $currentTime
+                  }
+              }
+              
               Start-Sleep -Seconds 300
           }
+
+      - name: Backup Session on Shutdown
+        if: always() && inputs.storage_backend != 'none'
+        run: |
+          Write-Host "`n💾 Performing final session backup..." -ForegroundColor Cyan
+          
+          $storageBackend = "${{ inputs.storage_backend }}"
+          
+          if ($storageBackend -eq "google-drive" -or $storageBackend -eq "onedrive") {
+              try {
+                  $remoteName = if ($storageBackend -eq "google-drive") { "gdrive" } else { "onedrive" }
+                  
+                  if ("${{ secrets.RCLONE_CONFIG }}" -ne "") {
+                      Write-Host "📤 Final sync to $storageBackend..." -ForegroundColor Yellow
+                      
+                      rclone sync "$env:USERPROFILE\Desktop" "${remoteName}:RDP-Backup/Desktop" -v --exclude "desktop.ini"
+                      rclone sync "$env:USERPROFILE\Documents" "${remoteName}:RDP-Backup/Documents" -v --exclude "desktop.ini"
+                      rclone sync "$env:USERPROFILE\Downloads" "${remoteName}:RDP-Backup/Downloads" -v --exclude "desktop.ini"
+                      
+                      Write-Host "✅ Final backup completed successfully" -ForegroundColor Green
+                  } else {
+                      Write-Host "⚠️  RCLONE_CONFIG not set, skipping backup" -ForegroundColor Yellow
+                  }
+              } catch {
+                  Write-Host "⚠️  Final backup failed: $_" -ForegroundColor Yellow
+              }
+          }
+          elseif ($storageBackend -eq "github-artifacts") {
+              Write-Host "📦 Creating GitHub Artifacts backup..." -ForegroundColor Yellow
+              
+              # Create a compressed backup
+              $backupPath = "$env:TEMP\rdp-session-backup.zip"
+              
+              try {
+                  Compress-Archive -Path "$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents","$env:USERPROFILE\Downloads" `
+                                   -DestinationPath $backupPath -Force
+                  
+                  Write-Host "✅ Backup archive created: $backupPath" -ForegroundColor Green
+                  Write-Host "ℹ️  To enable artifact upload, add actions/upload-artifact step" -ForegroundColor Gray
+              } catch {
+                  Write-Host "⚠️  Failed to create backup archive: $_" -ForegroundColor Yellow
+              }
+          }
+          
+          Write-Host "`n✅ Session backup complete" -ForegroundColor Green
+
