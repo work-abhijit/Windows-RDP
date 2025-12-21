@@ -34,6 +34,13 @@ https://github.com/work-abhijit/Windows-Server/settings/secrets/actions
 # 4. Check "Reusable" and copy the key
 ```
 
+**Optional: Setup Persistent Storage (Recommended)**
+```bash
+# 4. RCLONE_CONFIG = [rclone config for Google Drive/OneDrive]
+# This allows your files to persist across sessions!
+# See "Persistent Storage Setup" section below for details
+```
+
 ---
 
 ### Step 2: Install Tailscale on Your Computer
@@ -201,6 +208,146 @@ tailscale up
 
 ---
 
+## 💾 Persistent Storage Setup (Optional)
+
+Keep your files across sessions! By default, each workflow run starts with a fresh machine. With persistent storage, your Desktop, Documents, and Downloads folders are automatically backed up to the cloud.
+
+### Quick Setup with Google Drive (Recommended)
+
+**Step 1: Install rclone**
+```powershell
+# Windows
+choco install rclone -y
+
+# Mac
+brew install rclone
+
+# Linux
+curl https://rclone.org/install.sh | sudo bash
+```
+
+**Step 2: Configure Google Drive**
+```bash
+# Run configuration wizard
+rclone config
+
+# Follow these prompts:
+# n) New remote
+# name> gdrive
+# Storage> drive (or number for Google Drive)
+# client_id> [Press Enter]
+# client_secret> [Press Enter]
+# scope> 1 (Full access)
+# root_folder_id> [Press Enter]
+# service_account_file> [Press Enter]
+# Edit advanced config? n
+# Use auto config? y (browser will open - sign in to Google)
+# Configure as team drive? n
+# y) Yes this is OK
+# q) Quit config
+```
+
+**Step 3: Get Your rclone Config**
+```powershell
+# Windows
+Get-Content "$env:APPDATA\rclone\rclone.conf"
+
+# Mac/Linux
+cat ~/.config/rclone/rclone.conf
+```
+
+**Step 4: Add to GitHub Secrets**
+```bash
+# Copy the ENTIRE output from Step 3
+# Go to: https://github.com/work-abhijit/Windows-Server/settings/secrets/actions
+# Click "New repository secret"
+# Name: RCLONE_CONFIG
+# Value: [Paste the entire config]
+```
+
+**Step 5: Run Workflow with Persistence**
+```bash
+# When running the workflow, choose:
+# - Restore from previous session?: yes
+# - Persistent storage backend: google-drive
+```
+
+### Alternative: OneDrive Setup
+
+```bash
+# Run rclone config
+rclone config
+
+# Follow these prompts:
+# n) New remote
+# name> onedrive
+# Storage> onedrive (or number for OneDrive)
+# client_id> [Press Enter]
+# client_secret> [Press Enter]
+# region> 1 (Microsoft Cloud Global)
+# Edit advanced config? n
+# Use auto config? y (browser will open - sign in to Microsoft)
+# Type of connection> 1 (OneDrive Personal)
+# Drive OK? y
+# y) Yes this is OK
+# q) Quit config
+
+# Then follow Steps 3-5 above
+```
+
+### What Gets Backed Up?
+
+- ✅ Desktop files (`C:\Users\<username>\Desktop`)
+- ✅ Documents (`C:\Users\<username>\Documents`)
+- ✅ Downloads (`C:\Users\<username>\Downloads`)
+- 🔄 Auto-backup every 30 minutes while RDP is active
+- 💾 Final backup when you stop the workflow
+
+### Usage Examples
+
+**Continue your work:**
+```bash
+# Run workflow with:
+Restore from previous session?: yes
+Persistent storage backend: google-drive
+# Result: All files from last session restored!
+```
+
+**Fresh start (but keep backups):**
+```bash
+# Run workflow with:
+Restore from previous session?: no
+Persistent storage backend: google-drive
+# Result: Clean machine, old files still in cloud
+```
+
+**No persistence (old behavior):**
+```bash
+# Run workflow with:
+Restore from previous session?: no
+Persistent storage backend: none
+# Result: Fresh machine every time
+```
+
+### CLI Commands for Persistent Storage
+
+```bash
+# Set rclone config secret
+gh secret set RCLONE_CONFIG < ~/.config/rclone/rclone.conf
+
+# Run workflow with specific options (requires workflow_dispatch inputs)
+gh workflow run RDP
+
+# Check your cloud storage
+rclone ls gdrive:RDP-Backup/Desktop
+rclone ls gdrive:RDP-Backup/Documents
+rclone ls gdrive:RDP-Backup/Downloads
+```
+
+**Full guide:** See [PERSISTENT_STORAGE_GUIDE.md](PERSISTENT_STORAGE_GUIDE.md)
+
+---
+
 ## 🔧 Troubleshooting
 
 ### Workflow Fails to Start
@@ -261,9 +408,10 @@ Tailscale Keys: https://login.tailscale.com/admin/settings/keys
 
 ### Required Secrets
 ```
-RDP_USERNAME      = Your RDP username
-RDP_PASSWORD      = Your RDP password (min 12 chars, strong)
+RDP_USERNAME       = Your RDP username
+RDP_PASSWORD       = Your RDP password (min 12 chars, strong)
 TAILSCALE_AUTH_KEY = tskey-auth-xxxxxxxxxxxxx
+RCLONE_CONFIG      = [Optional] Rclone config for persistent storage
 ```
 
 ### Connection Info

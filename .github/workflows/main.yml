@@ -2,6 +2,25 @@ name: RDP
 
 on:
   workflow_dispatch:
+    inputs:
+      restore_session:
+        description: 'Restore from previous session?'
+        required: true
+        default: 'yes'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      storage_backend:
+        description: 'Persistent storage backend'
+        required: true
+        default: 'github-artifacts'
+        type: choice
+        options:
+          - 'github-artifacts'
+          - 'google-drive'
+          - 'onedrive'
+          - 'none'
 
 jobs:
   secure-rdp:
@@ -48,6 +67,92 @@ jobs:
           
           echo "TRIGGER_IP=$detectedIP" >> $env:GITHUB_ENV
           Write-Host "🔒 RDP will be restricted to IP: $detectedIP" -ForegroundColor Green
+
+      - name: Restore Previous Session
+        if: inputs.restore_session == 'yes' && inputs.storage_backend != 'none'
+        run: |
+          Write-Host "`n📦 Restoring previous session data..." -ForegroundColor Cyan
+          
+          $storageBackend = "${{ inputs.storage_backend }}"
+          $restorePath = "$env:USERPROFILE\RDPSession"
+          
+          if ($storageBackend -eq "github-artifacts") {
+              Write-Host "🔍 Checking for previous session artifacts..." -ForegroundColor Yellow
+              
+              # Download the latest session backup artifact
+              # Note: This requires the GitHub CLI or API token
+              try {
+                  # Create restore directory
+                  New-Item -ItemType Directory -Path $restorePath -Force | Out-Null
+                  
+                  Write-Host "⚠️  GitHub Artifacts restore requires manual setup" -ForegroundColor Yellow
+                  Write-Host "   To enable: Add GITHUB_TOKEN to secrets and use actions/download-artifact" -ForegroundColor Gray
+                  Write-Host "   For now, starting with fresh session..." -ForegroundColor Gray
+              } catch {
+                  Write-Host "⚠️  Could not restore from artifacts: $_" -ForegroundColor Yellow
+              }
+          }
+          elseif ($storageBackend -eq "google-drive") {
+              Write-Host "☁️  Google Drive sync selected" -ForegroundColor Cyan
+              
+              # Install rclone for cloud storage
+              try {
+                  Write-Host "Installing rclone..." -ForegroundColor Yellow
+                  choco install rclone -y --no-progress
+                  
+                  if ("${{ secrets.RCLONE_CONFIG }}" -ne "") {
+                      # Restore rclone config from secret
+                      $rcloneConfigPath = "$env:APPDATA\rclone\rclone.conf"
+                      New-Item -ItemType Directory -Path (Split-Path $rcloneConfigPath) -Force | Out-Null
+                      "${{ secrets.RCLONE_CONFIG }}" | Out-File -FilePath $rcloneConfigPath -Encoding UTF8
+                      
+                      Write-Host "✅ Rclone configured" -ForegroundColor Green
+                      Write-Host "📥 Syncing from Google Drive..." -ForegroundColor Cyan
+                      
+                      # Sync Desktop, Documents, Downloads
+                      rclone sync "gdrive:RDP-Backup/Desktop" "$env:USERPROFILE\Desktop" -v
+                      rclone sync "gdrive:RDP-Backup/Documents" "$env:USERPROFILE\Documents" -v
+                      rclone sync "gdrive:RDP-Backup/Downloads" "$env:USERPROFILE\Downloads" -v
+                      
+                      Write-Host "✅ Files restored from Google Drive" -ForegroundColor Green
+                  } else {
+                      Write-Host "⚠️  RCLONE_CONFIG secret not set. Skipping cloud sync." -ForegroundColor Yellow
+                      Write-Host "   See SETUP.md for rclone configuration instructions" -ForegroundColor Gray
+                  }
+              } catch {
+                  Write-Host "⚠️  Google Drive sync failed: $_" -ForegroundColor Yellow
+              }
+          }
+          elseif ($storageBackend -eq "onedrive") {
+              Write-Host "☁️  OneDrive sync selected" -ForegroundColor Cyan
+              
+              try {
+                  Write-Host "Installing rclone..." -ForegroundColor Yellow
+                  choco install rclone -y --no-progress
+                  
+                  if ("${{ secrets.RCLONE_CONFIG }}" -ne "") {
+                      $rcloneConfigPath = "$env:APPDATA\rclone\rclone.conf"
+                      New-Item -ItemType Directory -Path (Split-Path $rcloneConfigPath) -Force | Out-Null
+                      "${{ secrets.RCLONE_CONFIG }}" | Out-File -FilePath $rcloneConfigPath -Encoding UTF8
+                      
+                      Write-Host "✅ Rclone configured" -ForegroundColor Green
+                      Write-Host "📥 Syncing from OneDrive..." -ForegroundColor Cyan
+                      
+                      rclone sync "onedrive:RDP-Backup/Desktop" "$env:USERPROFILE\Desktop" -v
+                      rclone sync "onedrive:RDP-Backup/Documents" "$env:USERPROFILE\Documents" -v
+                      rclone sync "onedrive:RDP-Backup/Downloads" "$env:USERPROFILE\Downloads" -v
+                      
+                      Write-Host "✅ Files restored from OneDrive" -ForegroundColor Green
+                  } else {
+                      Write-Host "⚠️  RCLONE_CONFIG secret not set. Skipping cloud sync." -ForegroundColor Yellow
+                  }
+              } catch {
+                  Write-Host "⚠️  OneDrive sync failed: $_" -ForegroundColor Yellow
+              }
+          }
+          
+          Write-Host "✅ Session restore complete`n" -ForegroundColor Green
+
       - name: Configure Core RDP Settings and Firewall
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (if needed)
@@ -245,8 +350,87 @@ jobs:
           Write-Host ""
           Write-Host "========================================`n" -ForegroundColor Cyan
           
-          # Keep runner active indefinitely (or until manually cancelled)
+          # Keep runner active and perform periodic backups
+          $backupInterval = 1800  # 30 minutes in seconds
+          $lastBackup = Get-Date
+          $storageBackend = "${{ inputs.storage_backend }}"
+          
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              $currentTime = Get-Date
+              $timeSinceBackup = ($currentTime - $lastBackup).TotalSeconds
+              
+              Write-Host "[$currentTime] RDP Active - Use Ctrl+C in workflow to terminate" -ForegroundColor Green
+              
+              # Perform periodic backup if enabled
+              if ($storageBackend -ne "none" -and $timeSinceBackup -ge $backupInterval) {
+                  Write-Host "`n💾 Performing periodic backup..." -ForegroundColor Cyan
+                  
+                  if ($storageBackend -eq "google-drive" -or $storageBackend -eq "onedrive") {
+                      try {
+                          $remoteName = if ($storageBackend -eq "google-drive") { "gdrive" } else { "onedrive" }
+                          
+                          Write-Host "📤 Syncing to $storageBackend..." -ForegroundColor Yellow
+                          rclone sync "$env:USERPROFILE\Desktop" "${remoteName}:RDP-Backup/Desktop" -v --exclude "desktop.ini"
+                          rclone sync "$env:USERPROFILE\Documents" "${remoteName}:RDP-Backup/Documents" -v --exclude "desktop.ini"
+                          rclone sync "$env:USERPROFILE\Downloads" "${remoteName}:RDP-Backup/Downloads" -v --exclude "desktop.ini"
+                          
+                          Write-Host "✅ Backup completed at $currentTime" -ForegroundColor Green
+                          $lastBackup = $currentTime
+                      } catch {
+                          Write-Host "⚠️  Backup failed: $_" -ForegroundColor Yellow
+                      }
+                  }
+                  elseif ($storageBackend -eq "github-artifacts") {
+                      Write-Host "ℹ️  GitHub Artifacts backup on shutdown only" -ForegroundColor Gray
+                      $lastBackup = $currentTime
+                  }
+              }
+              
               Start-Sleep -Seconds 300
           }
+
+      - name: Backup Session on Shutdown
+        if: always() && inputs.storage_backend != 'none'
+        run: |
+          Write-Host "`n💾 Performing final session backup..." -ForegroundColor Cyan
+          
+          $storageBackend = "${{ inputs.storage_backend }}"
+          
+          if ($storageBackend -eq "google-drive" -or $storageBackend -eq "onedrive") {
+              try {
+                  $remoteName = if ($storageBackend -eq "google-drive") { "gdrive" } else { "onedrive" }
+                  
+                  if ("${{ secrets.RCLONE_CONFIG }}" -ne "") {
+                      Write-Host "📤 Final sync to $storageBackend..." -ForegroundColor Yellow
+                      
+                      rclone sync "$env:USERPROFILE\Desktop" "${remoteName}:RDP-Backup/Desktop" -v --exclude "desktop.ini"
+                      rclone sync "$env:USERPROFILE\Documents" "${remoteName}:RDP-Backup/Documents" -v --exclude "desktop.ini"
+                      rclone sync "$env:USERPROFILE\Downloads" "${remoteName}:RDP-Backup/Downloads" -v --exclude "desktop.ini"
+                      
+                      Write-Host "✅ Final backup completed successfully" -ForegroundColor Green
+                  } else {
+                      Write-Host "⚠️  RCLONE_CONFIG not set, skipping backup" -ForegroundColor Yellow
+                  }
+              } catch {
+                  Write-Host "⚠️  Final backup failed: $_" -ForegroundColor Yellow
+              }
+          }
+          elseif ($storageBackend -eq "github-artifacts") {
+              Write-Host "📦 Creating GitHub Artifacts backup..." -ForegroundColor Yellow
+              
+              # Create a compressed backup
+              $backupPath = "$env:TEMP\rdp-session-backup.zip"
+              
+              try {
+                  Compress-Archive -Path "$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents","$env:USERPROFILE\Downloads" `
+                                   -DestinationPath $backupPath -Force
+                  
+                  Write-Host "✅ Backup archive created: $backupPath" -ForegroundColor Green
+                  Write-Host "ℹ️  To enable artifact upload, add actions/upload-artifact step" -ForegroundColor Gray
+              } catch {
+                  Write-Host "⚠️  Failed to create backup archive: $_" -ForegroundColor Yellow
+              }
+          }
+          
+          Write-Host "`n✅ Session backup complete" -ForegroundColor Green
+

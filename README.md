@@ -9,6 +9,7 @@ A secure, automated Windows RDP server deployment using GitHub Actions, Tailscal
 ✅ **Static Credentials** - Use the same username/password every time  
 ✅ **Auto IP Detection** - Automatically restricts access to the machine that triggers the workflow  
 ✅ **Firewall Protected** - Only accessible via Tailscale VPN + your IP  
+✅ **Persistent Storage** - Keep your files across sessions with Google Drive/OneDrive sync  
 ✅ **Free VPN** - Tailscale free tier (100 devices, 3 users)  
 ✅ **Fast & Secure** - Peer-to-peer encryption, no speed impact  
 ✅ **Global Access** - Connect from India or anywhere in the world  
@@ -21,11 +22,36 @@ A secure, automated Windows RDP server deployment using GitHub Actions, Tailscal
 ```bash
 # 1. Add GitHub Secrets (RDP_USERNAME, RDP_PASSWORD, TAILSCALE_AUTH_KEY)
 # 2. Install Tailscale on your computer
-# 3. Run workflow from GitHub Actions
-# 4. Connect via RDP using Tailscale IP
+# 3. (Optional) Set up persistent storage with RCLONE_CONFIG secret
+# 4. Run workflow from GitHub Actions
+# 5. Connect via RDP using Tailscale IP
 ```
 
-📖 **Complete CLI setup guide**: See [SETUP.md](SETUP.md)
+📖 **Complete CLI setup guide**: See [SETUP.md](SETUP.md)  
+💾 **Persistent storage guide**: See [PERSISTENT_STORAGE_GUIDE.md](PERSISTENT_STORAGE_GUIDE.md)
+
+---
+
+## 💾 Persistent Storage
+
+**Problem:** GitHub Actions runners are ephemeral - every restart gives you a fresh machine with no files.
+
+**Solution:** Automatic cloud sync with Google Drive or OneDrive!
+
+### How It Works:
+
+1. **Choose your storage** when running the workflow (Google Drive, OneDrive, or none)
+2. **Restore files** from your last session automatically
+3. **Auto-backup** every 30 minutes while working
+4. **Final backup** when you stop the workflow
+
+### What Gets Saved:
+- ✅ Desktop files
+- ✅ Documents
+- ✅ Downloads
+- ✅ Any files you create
+
+**Quick setup:** See [QUICK_REFERENCE.md](QUICK_REFERENCE.md) for a 5-minute setup guide.
 
 ---
 
