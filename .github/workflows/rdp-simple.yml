@@ -1,0 +1,144 @@
+name: RDP-Simple
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp-server:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable RDP
+        run: |
+          Write-Host "🔧 Enabling Remote Desktop..." -ForegroundColor Cyan
+          
+          # Enable Remote Desktop
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          
+          # Enable RDP firewall rule
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          Write-Host "✅ RDP Enabled" -ForegroundColor Green
+
+      - name: Create RDP User
+        run: |
+          Write-Host "👤 Creating RDP user..." -ForegroundColor Cyan
+          
+          $username = "${{ secrets.RDP_USERNAME }}"
+          $password = "${{ secrets.RDP_PASSWORD }}"
+          
+          if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($password)) {
+              Write-Host "⚠️  RDP_USERNAME or RDP_PASSWORD not set. Using defaults..." -ForegroundColor Yellow
+              $username = "rdpuser"
+              $password = "P@ssw0rd123!"
+          }
+          
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Remove user if exists
+          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
+              Remove-LocalUser -Name $username -Force
+          }
+          
+          # Create user
+          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          echo "RDP_USER=$username" >> $env:GITHUB_ENV
+          
+          Write-Host "✅ User created: $username" -ForegroundColor Green
+
+      - name: Install Tailscale
+        run: |
+          Write-Host "📥 Installing Tailscale..." -ForegroundColor Cyan
+          
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath -UseBasicParsing
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          Write-Host "✅ Tailscale installed" -ForegroundColor Green
+
+      - name: Connect to Tailscale
+        run: |
+          Write-Host "🔗 Connecting to Tailscale..." -ForegroundColor Cyan
+          
+          $tailscalePath = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          
+          if (-not (Test-Path $tailscalePath)) {
+              Write-Error "❌ Tailscale not found at $tailscalePath"
+              exit 1
+          }
+          
+          # Connect to Tailscale
+          $authKey = "${{ secrets.TAILSCALE_AUTH_KEY }}"
+          if ([string]::IsNullOrWhiteSpace($authKey)) {
+              Write-Error "❌ TAILSCALE_AUTH_KEY secret not set!"
+              exit 1
+          }
+          
+          & $tailscalePath up --authkey=$authKey --hostname="gh-rdp-$env:GITHUB_RUN_ID" --accept-routes
+          
+          # Wait for IP assignment
+          Write-Host "⏳ Waiting for Tailscale IP..." -ForegroundColor Yellow
+          $maxRetries = 30
+          $retries = 0
+          $tsIP = $null
+          
+          while (-not $tsIP -and $retries -lt $maxRetries) {
+              Start-Sleep -Seconds 5
+              $retries++
+              
+              try {
+                  $ipOutput = & $tailscalePath ip -4 2>&1
+                  if ($ipOutput -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                      $tsIP = $ipOutput.Trim()
+                      Write-Host "✅ Tailscale IP: $tsIP" -ForegroundColor Green
+                      break
+                  }
+              } catch {
+                  Write-Host "⏳ Retry $retries/$maxRetries..." -ForegroundColor Gray
+              }
+          }
+          
+          if (-not $tsIP) {
+              Write-Host "`n❌ Failed to get Tailscale IP" -ForegroundColor Red
+              Write-Host "Tailscale Status:" -ForegroundColor Yellow
+              & $tailscalePath status
+              exit 1
+          }
+          
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Display Connection Info
+        run: |
+          Write-Host "`n========================================" -ForegroundColor Cyan
+          Write-Host "       🖥️  RDP CONNECTION INFO" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP" -ForegroundColor Green
+          Write-Host "Username: $env:RDP_USER" -ForegroundColor Green
+          Write-Host "Password: (Check your GitHub Secrets)" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "To connect:" -ForegroundColor White
+          Write-Host "1. Make sure Tailscale is running on your local machine" -ForegroundColor Gray
+          Write-Host "2. Open Remote Desktop Connection (mstsc)" -ForegroundColor Gray
+          Write-Host "3. Connect to: $env:TAILSCALE_IP" -ForegroundColor Gray
+          Write-Host "4. Use the credentials above" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "========================================`n" -ForegroundColor Cyan
+
+      - name: Keep Alive
+        run: |
+          Write-Host "🟢 RDP Server is running..." -ForegroundColor Green
+          Write-Host "Press Ctrl+C in Actions to stop the workflow`n" -ForegroundColor Yellow
+          
+          while ($true) {
+              $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+              Write-Host "[$timestamp] Server active - Tailscale IP: $env:TAILSCALE_IP" -ForegroundColor Green
+              Start-Sleep -Seconds 300
+          }
