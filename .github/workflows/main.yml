@@ -19,12 +19,27 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
                              -Name "SecurityLayer" -Value 0 -Force
 
-          # Remove any existing rule with the same name to avoid duplication
+          # Remove any existing RDP rules to avoid duplication
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall delete rule name="Block-RDP-Public"
           
-          # For testing, allow any incoming connection on port 3389
+          Write-Host "`n🔒 Configuring Firewall Rules..." -ForegroundColor Cyan
+          
+          # Block all RDP connections by default (security first)
+          netsh advfirewall firewall add rule name="Block-RDP-Public" `
+            dir=in action=block protocol=TCP localport=3389 profile=public
+          Write-Host "✅ Blocked all public RDP connections" -ForegroundColor Green
+          
+          # Allow RDP from Tailscale network (100.64.0.0/10 is Tailscale's CGNAT range)
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
+            dir=in action=allow protocol=TCP localport=3389 `
+            remoteip=100.64.0.0/10 profile=any
+          Write-Host "✅ Allowed RDP from Tailscale network (100.64.0.0/10)" -ForegroundColor Green
+          
+          Write-Host "`n🔒 Firewall Summary:" -ForegroundColor Cyan
+          Write-Host "   - Blocked: All public internet" -ForegroundColor Red
+          Write-Host "   - Allowed: Tailscale network (100.64.0.0/10)" -ForegroundColor Green
+          Write-Host ""
 
           # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
