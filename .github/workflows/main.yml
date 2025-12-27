@@ -117,6 +117,17 @@ jobs:
               
               echo "EXIT_NODE=$exitNodeIP" >> $env:GITHUB_ENV
               echo "PUBLIC_IP=$publicIP" >> $env:GITHUB_ENV
+              
+              # Display RDP credentials
+              Write-Host "`n========================================="
+              Write-Host "       RDP CONNECTION DETAILS"
+              Write-Host "========================================="
+              Write-Host "Address:  $env:TAILSCALE_IP"
+              Write-Host "Username: RDP"
+              Write-Host "Password: $($env:RDP_CREDS -replace 'User: RDP \| Password: ', '')"
+              Write-Host "========================================="
+              Write-Host "Public IP: $publicIP (via exit node)"
+              Write-Host "=========================================`n"
       
       
       - name: Verify RDP Accessibility
@@ -133,14 +144,31 @@ jobs:
 
       - name: Maintain Connection
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "==================`n"
+          # Extract password from RDP_CREDS
+          $password = $env:RDP_CREDS -replace 'User: RDP \| Password: ', ''
+          
+          Write-Host "`n"
+          Write-Host "=========================================" -ForegroundColor Green
+          Write-Host "       RDP SERVER IS READY!" -ForegroundColor Green
+          Write-Host "=========================================" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "Connection Details:" -ForegroundColor Cyan
+          Write-Host "  Address:  $env:TAILSCALE_IP" -ForegroundColor Yellow
+          Write-Host "  Username: RDP" -ForegroundColor Yellow
+          Write-Host "  Password: $password" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "Network Info:" -ForegroundColor Cyan
+          Write-Host "  Exit Node: $env:EXIT_NODE" -ForegroundColor Yellow
+          Write-Host "  Public IP: $env:PUBLIC_IP" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "=========================================" -ForegroundColor Green
+          Write-Host "Server will remain active until cancelled" -ForegroundColor Green
+          Write-Host "=========================================" -ForegroundColor Green
+          Write-Host "`n"
           
           # Keep runner active indefinitely (or until manually cancelled)
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              Write-Host "[$(Get-Date)] RDP Active - Server IP: $env:PUBLIC_IP"
               Start-Sleep -Seconds 300
           }
+
