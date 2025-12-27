@@ -19,6 +19,22 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
                              -Name "SecurityLayer" -Value 0 -Force
 
+          # Gaming Optimization: Enable RemoteFX for better graphics performance
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "fEnableRemoteFXAdvancedRemoteApp" -Value 1 -Force -ErrorAction SilentlyContinue
+          
+          # Set color depth to 32-bit for better visual quality
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "ColorDepth" -Value 4 -Force
+          
+          # Enable audio redirection for gaming sound
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "fDisableAudioCapture" -Value 0 -Force
+          
+          # Disable bandwidth throttling
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "FlowControlDisable" -Value 1 -Force -ErrorAction SilentlyContinue
+
           # Remove any existing rule with the same name to avoid duplication
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
           
@@ -26,8 +42,70 @@ jobs:
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
             dir=in action=allow protocol=TCP localport=3389
 
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
+          # Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
+
+      - name: Optimize Windows for Gaming Performance
+        run: |
+          # Disable visual effects for better performance
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' `
+                             -Name "VisualFXSetting" -Value 2 -Force
+          
+          # Set high performance power plan
+          powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+          
+          # Disable Windows Update during gaming sessions
+          Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+          Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
+          
+          # Disable unnecessary services for performance
+          $servicesToDisable = @('SysMain', 'DiagTrack', 'WSearch')
+          foreach ($service in $servicesToDisable) {
+              Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
+              Set-Service -Name $service -StartupType Disabled -ErrorAction SilentlyContinue
+          }
+          
+          # Enable Game Mode
+          New-Item -Path 'HKCU:\Software\Microsoft\GameBar' -Force | Out-Null
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\GameBar' -Name "AllowAutoGameMode" -Value 1 -Force
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\GameBar' -Name "AutoGameModeEnabled" -Value 1 -Force
+
+      - name: Install Gaming Prerequisites
+        run: |
+          Write-Host "Installing DirectX and Visual C++ Redistributables..."
+          
+          # Install Chocolatey for easier package management
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          
+          # Install DirectX
+          choco install directx -y --no-progress
+          
+          # Install Visual C++ Redistributables (required for most games)
+          choco install vcredist-all -y --no-progress
+          
+          # Install .NET Framework (if needed)
+          choco install dotnet-runtime -y --no-progress
+          
+          Write-Host "Gaming prerequisites installed successfully!"
+
+      - name: Install Game Launchers (Optional)
+        run: |
+          Write-Host "Installing game launchers..."
+          
+          # Uncomment the ones you want to install:
+          
+          # Install Steam
+          # choco install steam -y --no-progress
+          
+          # Install Epic Games Launcher
+          # choco install epicgameslauncher -y --no-progress
+          
+          # Install GOG Galaxy
+          # choco install goggalaxy -y --no-progress
+          
+          Write-Host "Note: Game launchers are commented out. Uncomment in workflow to install."
 
       - name: Create RDP User with Secure Password
         run: |
