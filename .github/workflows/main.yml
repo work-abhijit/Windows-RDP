@@ -166,6 +166,29 @@ jobs:
           Write-Host "=========================================" -ForegroundColor Green
           Write-Host "`n"
           
+          # One-click connection instructions
+          Write-Host "==========================================" -ForegroundColor Magenta
+          Write-Host "   ONE-CLICK CONNECTION OPTIONS" -ForegroundColor Magenta
+          Write-Host "==========================================" -ForegroundColor Magenta
+          Write-Host ""
+          Write-Host "Option 1 - PowerShell (Saves Password):" -ForegroundColor Yellow
+          Write-Host "  cmdkey /generic:$env:TAILSCALE_IP /user:RDP /pass:$password; mstsc /v:$env:TAILSCALE_IP" -ForegroundColor White
+          Write-Host ""
+          Write-Host "Option 2 - Simple Command:" -ForegroundColor Yellow
+          Write-Host "  mstsc /v:$env:TAILSCALE_IP" -ForegroundColor White
+          Write-Host "  (Then enter username: RDP, password: $password)" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "Option 3 - Create RDP File:" -ForegroundColor Yellow
+          Write-Host "  1. Create file 'connect.rdp' with this content:" -ForegroundColor Gray
+          Write-Host "     full address:s:$env:TAILSCALE_IP" -ForegroundColor White
+          Write-Host "     username:s:RDP" -ForegroundColor White
+          Write-Host "  2. Double-click the file" -ForegroundColor Gray
+          Write-Host "  3. Enter password: $password" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "==========================================" -ForegroundColor Magenta
+          Write-Host ""
+          
+
           # Keep runner active indefinitely (or until manually cancelled)
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active - Server IP: $env:PUBLIC_IP"
