@@ -86,6 +86,61 @@ jobs:
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
       
+      - name: Configure Exit Node (Route Traffic Through Your IP)
+        run: |
+          Write-Host "Configuring runner to use your local machine's public IP..."
+          
+          # Get list of all Tailscale devices in your network
+          $devices = & "$env:ProgramFiles\Tailscale\tailscale.exe" status --json | ConvertFrom-Json
+          
+          # Find your local machine (the one that's not this runner)
+          # You can identify it by hostname or by finding the device that's been online longest
+          $exitNode = $null
+          
+          # Option 1: Use a specific hostname (recommended)
+          # Uncomment and set your local machine's Tailscale hostname
+          # $exitNode = ($devices.Peer | Where-Object { $_.HostName -eq "your-local-machine" }).ID
+          
+          # Option 2: Auto-detect (use the first non-runner device)
+          # This finds devices that don't match the current runner hostname pattern
+          $currentHostname = "gh-runner-$env:GITHUB_RUN_ID"
+          foreach ($peer in $devices.Peer.PSObject.Properties) {
+              $peerData = $peer.Value
+              if ($peerData.HostName -and $peerData.HostName -ne $currentHostname -and $peerData.Online) {
+                  $exitNode = $peer.Name
+                  Write-Host "Found potential exit node: $($peerData.HostName) ($exitNode)"
+                  break
+              }
+          }
+          
+          if ($exitNode) {
+              Write-Host "Setting exit node to: $exitNode"
+              & "$env:ProgramFiles\Tailscale\tailscale.exe" set --exit-node=$exitNode --exit-node-allow-lan-access=true
+              
+              # Verify the exit node is set
+              Start-Sleep -Seconds 5
+              $status = & "$env:ProgramFiles\Tailscale\tailscale.exe" status --json | ConvertFrom-Json
+              
+              # Get public IP to verify it matches your local IP
+              $publicIP = (Invoke-WebRequest -Uri "https://api.ipify.org" -UseBasicParsing).Content
+              Write-Host "`n=== NETWORK CONFIGURATION ==="
+              Write-Host "Exit Node: $exitNode"
+              Write-Host "Public IP: $publicIP"
+              Write-Host "This should match your local machine's public IP"
+              Write-Host "============================`n"
+              
+              echo "EXIT_NODE=$exitNode" >> $env:GITHUB_ENV
+              echo "PUBLIC_IP=$publicIP" >> $env:GITHUB_ENV
+          } else {
+              Write-Warning "No exit node found. Make sure your local machine is connected to Tailscale."
+              Write-Warning "The runner will use its own public IP (GitHub's datacenter IP)."
+              Write-Warning ""
+              Write-Warning "To fix this:"
+              Write-Warning "1. Ensure Tailscale is running on your local machine"
+              Write-Warning "2. Enable exit node on your local machine: tailscale up --advertise-exit-node"
+              Write-Warning "3. Approve the exit node in Tailscale admin console"
+          }
+      
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
