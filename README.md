@@ -26,6 +26,8 @@ A GitHub Actions-powered Windows RDP server accessible via Tailscale VPN.
 4. **Wait 2-3 minutes** for setup to complete
 5. **Copy the one-line command** from workflow logs and paste it in your terminal
 
+📖 **See [QUICK_CONNECT.md](QUICK_CONNECT.md) for detailed connection instructions**
+
 
 ## 🎯 Usage
 
