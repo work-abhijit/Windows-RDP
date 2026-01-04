@@ -86,49 +86,7 @@ jobs:
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
       
-      - name: Configure Exit Node (Route Traffic Through Your IP)
-        run: |
-          Write-Host "Configuring runner to use your local machine's public IP..."
-          
-          # Get list of all Tailscale devices in your network
-          $devices = & "$env:ProgramFiles\Tailscale\tailscale.exe" status --json | ConvertFrom-Json
-          
-          # Find your local machine (the one that's not this runner)
-          $exitNode = $null
-          
-          # Use specific Tailscale IP (most reliable method)
-          # Replace with your local machine's Tailscale IP: 100.93.69.67
-          $exitNodeIP = "100.93.69.67"
-          
-          Write-Host "Setting exit node to: $exitNodeIP (abhi)"
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" set --exit-node=$exitNodeIP --exit-node-allow-lan-access=true
 
-              
-              # Verify the exit node is set
-              Start-Sleep -Seconds 5
-              
-              # Get public IP to verify it matches your local IP
-              $publicIP = (Invoke-WebRequest -Uri "https://api.ipify.org" -UseBasicParsing).Content
-              Write-Host "`n=== NETWORK CONFIGURATION ==="
-              Write-Host "Exit Node IP: $exitNodeIP (abhi)"
-              Write-Host "Public IP: $publicIP"
-              Write-Host "This should match your local machine's public IP"
-              Write-Host "============================`n"
-              
-              echo "EXIT_NODE=$exitNodeIP" >> $env:GITHUB_ENV
-              echo "PUBLIC_IP=$publicIP" >> $env:GITHUB_ENV
-              
-              # Display RDP credentials
-              Write-Host "`n========================================="
-              Write-Host "       RDP CONNECTION DETAILS"
-              Write-Host "========================================="
-              Write-Host "Address:  $env:TAILSCALE_IP"
-              Write-Host "Username: RDP"
-              Write-Host "Password: $($env:RDP_CREDS -replace 'User: RDP \| Password: ', '')"
-              Write-Host "========================================="
-              Write-Host "Public IP: $publicIP (via exit node)"
-              Write-Host "=========================================`n"
-      
       
       - name: Verify RDP Accessibility
         run: |
@@ -157,41 +115,31 @@ jobs:
           Write-Host "  Username: RDP" -ForegroundColor Yellow
           Write-Host "  Password: $password" -ForegroundColor Yellow
           Write-Host ""
-          Write-Host "Network Info:" -ForegroundColor Cyan
-          Write-Host "  Exit Node: $env:EXIT_NODE" -ForegroundColor Yellow
-          Write-Host "  Public IP: $env:PUBLIC_IP" -ForegroundColor Yellow
-          Write-Host ""
           Write-Host "=========================================" -ForegroundColor Green
           Write-Host "Server will remain active until cancelled" -ForegroundColor Green
           Write-Host "=========================================" -ForegroundColor Green
           Write-Host "`n"
           
-          # One-click connection instructions
-          Write-Host "==========================================" -ForegroundColor Magenta
-          Write-Host "   ONE-CLICK CONNECTION OPTIONS" -ForegroundColor Magenta
-          Write-Host "==========================================" -ForegroundColor Magenta
+          # One-click connection command
+          Write-Host "===========================================" -ForegroundColor Magenta
+          Write-Host "   ONE-LINE CONNECTION COMMAND" -ForegroundColor Magenta
+          Write-Host "===========================================" -ForegroundColor Magenta
           Write-Host ""
-          Write-Host "Option 1 - PowerShell (Saves Password):" -ForegroundColor Yellow
-          Write-Host "  cmdkey /generic:$env:TAILSCALE_IP /user:RDP /pass:$password; mstsc /v:$env:TAILSCALE_IP" -ForegroundColor White
+          Write-Host "Copy and paste this command in PowerShell or CMD:" -ForegroundColor Yellow
           Write-Host ""
-          Write-Host "Option 2 - Simple Command:" -ForegroundColor Yellow
-          Write-Host "  mstsc /v:$env:TAILSCALE_IP" -ForegroundColor White
-          Write-Host "  (Then enter username: RDP, password: $password)" -ForegroundColor Gray
+          Write-Host "cmdkey /generic:$env:TAILSCALE_IP /user:RDP /pass:$password && mstsc /v:$env:TAILSCALE_IP" -ForegroundColor White -BackgroundColor DarkBlue
           Write-Host ""
-          Write-Host "Option 3 - Create RDP File:" -ForegroundColor Yellow
-          Write-Host "  1. Create file 'connect.rdp' with this content:" -ForegroundColor Gray
-          Write-Host "     full address:s:$env:TAILSCALE_IP" -ForegroundColor White
-          Write-Host "     username:s:RDP" -ForegroundColor White
-          Write-Host "  2. Double-click the file" -ForegroundColor Gray
-          Write-Host "  3. Enter password: $password" -ForegroundColor Gray
+          Write-Host "This command will:" -ForegroundColor Gray
+          Write-Host "  1. Save the RDP credentials" -ForegroundColor Gray
+          Write-Host "  2. Automatically open RDP connection" -ForegroundColor Gray
+          Write-Host "  3. Connect without asking for password" -ForegroundColor Gray
           Write-Host ""
-          Write-Host "==========================================" -ForegroundColor Magenta
+          Write-Host "===========================================" -ForegroundColor Magenta
           Write-Host ""
           
-
           # Keep runner active indefinitely (or until manually cancelled)
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Server IP: $env:PUBLIC_IP"
+              Write-Host "[$(Get-Date)] RDP Server Active - Tailscale IP: $env:TAILSCALE_IP"
               Start-Sleep -Seconds 300
           }
 

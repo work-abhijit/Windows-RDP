@@ -1,16 +1,15 @@
-# 🎮 Windows RDP Gaming Server
+# 🎮 Windows RDP Server via Tailscale
 
-A GitHub Actions-powered Windows RDP server optimized for gaming, accessible via Tailscale VPN.
+A GitHub Actions-powered Windows RDP server accessible via Tailscale VPN.
 
 ## 🚀 Features
 
 - ✅ **Secure RDP Access** via Tailscale VPN
-- ✅ **Gaming Optimizations** (RemoteFX, audio redirection, performance tweaks)
-- ✅ **DirectX & Visual C++ Redistributables** pre-installed
-- ✅ **High-Performance Power Plan** enabled
-- ✅ **Game Mode** activated
-- ✅ **Optional Game Launchers** (Steam, Epic Games, GOG Galaxy)
+- ✅ **Auto-generated Credentials** with strong passwords
+- ✅ **One-Line Connection Command** for instant access
 - ✅ **60-hour runtime** (GitHub Actions maximum)
+- ✅ **No manual configuration** required
+
 
 ## ⚙️ Setup
 
@@ -25,7 +24,8 @@ A GitHub Actions-powered Windows RDP server optimized for gaming, accessible via
 2. **Add your Tailscale auth key** to GitHub Secrets
 3. **Trigger the workflow** manually from Actions tab
 4. **Wait 2-3 minutes** for setup to complete
-5. **Connect via RDP** using the credentials shown in the workflow logs
+5. **Copy the one-line command** from workflow logs and paste it in your terminal
+
 
 ## 🎯 Usage
 
@@ -34,20 +34,24 @@ A GitHub Actions-powered Windows RDP server optimized for gaming, accessible via
 1. Go to **Actions** tab in your GitHub repository
 2. Click on **RDP** workflow
 3. Click **Run workflow** → **Run workflow**
-4. Wait for the "Maintain Connection" step to show your credentials
+4. Wait for the "Maintain Connection" step to show your connection command
 
 ### Connecting to RDP
 
-**Credentials will be displayed in the workflow logs:**
+**The workflow will display a one-line command like this:**
 ```
-=== RDP ACCESS ===
-Address: 100.x.x.x (Tailscale IP)
-Username: RDP
-Password: [auto-generated secure password]
-==================
+cmdkey /generic:100.x.x.x /user:RDP /pass:YourPassword && mstsc /v:100.x.x.x
 ```
 
-**On Windows:**
+**To connect:**
+1. **Copy the command** from the workflow logs
+2. **Open PowerShell or CMD** on your Windows machine
+3. **Paste and run** the command
+4. **RDP will automatically connect** without asking for credentials!
+
+**Alternative Methods:**
+
+**On Windows (Manual):**
 1. Open **Remote Desktop Connection** (`mstsc.exe`)
 2. Enter the Tailscale IP address
 3. Click **Connect**
@@ -62,69 +66,33 @@ Password: [auto-generated secure password]
 ```bash
 remmina -c rdp://RDP@100.x.x.x
 ```
+## 🔧 Use Cases
 
-## 🎮 Gaming Performance
-
-### What Works Well:
-- ✅ **Browser-based games** (cloud gaming, web games)
-- ✅ **Lightweight indie games** (2D games, retro games)
-- ✅ **Strategy games** (turn-based, low graphics)
-- ✅ **Emulators** (RetroArch, Dolphin for older consoles)
-
-### Limitations:
-- ❌ **No dedicated GPU** - GitHub runners use basic display adapter
-- ❌ **Limited to 7GB RAM** - Can't run AAA games
-- ❌ **Network latency** - RDP over VPN adds 50-200ms latency
-- ❌ **60-hour maximum runtime** - Workflow auto-terminates
-
-### Recommended Use Cases:
-1. **Cloud Gaming Services** (GeForce NOW, Xbox Cloud Gaming)
-2. **Browser Games** (Krunker.io, Agar.io, etc.)
-3. **Lightweight Games** (Minecraft, Terraria, Stardew Valley)
-4. **Game Development/Testing** (Unity, Unreal Engine testing)
+This RDP server can be used for:
+- ✅ **Remote Windows Access** - Access a Windows environment from anywhere
+- ✅ **Testing & Development** - Test Windows applications
+- ✅ **Browser-based tasks** - Access Windows-only websites or services
+- ✅ **Temporary Windows VM** - Quick Windows environment without local setup
+- ✅ **Automation** - Run Windows scripts or tools remotely
 
 ## 🔧 Customization
 
-### Enable Game Launchers
+### Install Additional Software
 
-Edit `main.yml` and uncomment the game launchers you want:
-
-```yaml
-# Install Steam
-choco install steam -y --no-progress
-
-# Install Epic Games Launcher
-choco install epicgameslauncher -y --no-progress
-
-# Install GOG Galaxy
-choco install goggalaxy -y --no-progress
-```
-
-### Install Specific Games
-
-Add a new step in `main.yml`:
+Add a new step in `main.yml` after the Tailscale connection:
 
 ```yaml
-- name: Install Games
+- name: Install Software
   run: |
-    # Example: Install Minecraft
-    choco install minecraft -y --no-progress
+    # Install via Chocolatey
+    choco install googlechrome -y --no-progress
+    choco install vscode -y --no-progress
     
-    # Example: Install specific game via direct download
-    $gameUrl = "https://example.com/game-installer.exe"
-    $installerPath = "$env:TEMP\game.exe"
-    Invoke-WebRequest -Uri $gameUrl -OutFile $installerPath
-    Start-Process $installerPath -ArgumentList "/S" -Wait
-```
-
-### Adjust Performance Settings
-
-Modify the "Optimize Windows for Gaming Performance" step:
-
-```yaml
-# Increase priority for RDP session
-Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' `
-                   -Name "Win32PrioritySeparation" -Value 38 -Force
+    # Or download and install directly
+    $url = "https://example.com/installer.exe"
+    $installer = "$env:TEMP\installer.exe"
+    Invoke-WebRequest -Uri $url -OutFile $installer
+    Start-Process $installer -ArgumentList "/S" -Wait
 ```
 
 ## 🛡️ Security
