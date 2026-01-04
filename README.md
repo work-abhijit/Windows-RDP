@@ -40,16 +40,25 @@ A GitHub Actions-powered Windows RDP server accessible via Tailscale VPN.
 
 ### Connecting to RDP
 
-**The workflow will display a one-line command like this:**
+**The workflow will display one-line commands like this:**
+
+**For PowerShell:**
+```powershell
+cmdkey /generic:100.x.x.x /user:RDP /pass:YourPassword; mstsc /v:100.x.x.x
 ```
-cmdkey /generic:100.x.x.x /user:RDP /pass:YourPassword && mstsc /v:100.x.x.x
+
+**For CMD:**
+```cmd
+cmdkey /generic:100.x.x.x /user:RDP /pass:YourPassword & mstsc /v:100.x.x.x
 ```
 
 **To connect:**
-1. **Copy the command** from the workflow logs
+1. **Copy the appropriate command** from the workflow logs (PowerShell or CMD)
 2. **Open PowerShell or CMD** on your Windows machine
 3. **Paste and run** the command
 4. **RDP will automatically connect** without asking for credentials!
+
+> **Note:** Use `;` for PowerShell or `&` for CMD. Don't use `&&` in PowerShell!
 
 **Alternative Methods:**
 
